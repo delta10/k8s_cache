@@ -3,12 +3,12 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      commit:
-        description: "Commit (e.g., 52f0348)"
-        default: "master"
+      version:
+        description: "Version used to create tag"
 
 env:
-  COREDNS_VERSION: v1.11.1
+  COREDNS_VERSION: 1.11.1
+  VERSION: ${{ github.event.inputs.version }}
 
 jobs:
   release:
@@ -19,38 +19,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: coredns/coredns
-          ref: ${{ env.COREDNS_VERSION }}
-      - name: Set up info
-        run: |
-          set -x -e
-          VERSION=$(make -f Makefile.release version)
-          COMMIT=$(git rev-parse --quiet --verify ${{ github.event.inputs.commit }})
-          echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-        id: info
+          ref: v${{ env.COREDNS_VERSION }}
       - name: Build release binary
         run: |
           sed -i 's/^cache:cache/k8s_cache:github.com\/delta10\/k8s_cache/' plugin.cfg
-          make -f Makefile.release release
+          make -f Makefile.release release -e VERSION=$VERSION
       - name: Build release binary sha256
         run: (cd release; for asset in `ls -A *tgz`; do sha256sum $asset > $asset.sha256; done)
       - name: Remove hidden section
-        run: sed '/+++/,//d' notes/coredns-${{ steps.info.outputs.version}}.md > release.md
+        run: sed '/+++/,//d' notes/coredns-${{ env.COREDNS_VERSION }}.md > release.md
       - name: Log release info
         run: |
           set -x -e
           git log -1
-          echo ${{ steps.info.outputs.commit }}
-          echo ${{ steps.info.outputs.version }}
+          echo ${{ env.COREDNS_VERSION }}
           cat release.md
           sha256sum release/*.tgz
       - name: Draft release
         uses: softprops/action-gh-release@v1
         with:
           body_path: release.md
-          name: v${{ steps.info.outputs.version }}
-          tag_name: v${{ steps.info.outputs.version }}
-          target_commitish: ${{ steps.info.outputs.commit }}
+          name: v${{ env.VERSION }}
+          tag_name: v${{ env.VERSION }}
           files: |
             release/*.tgz
             release/*.tgz.sha256
