@@ -34,35 +34,62 @@ func (c *Cache) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 	// in which upstream doesn't support DNSSEC, the two cache items will effectively be the same. Regardless, any
 	// DNSSEC RRs in the response are written to cache with the response.
 
-	ttl := 0
-	i := c.getIgnoreTTL(now, state, server)
-	if i == nil {
-		crr := &ResponseWriter{ResponseWriter: w, Cache: c, state: state, server: server, do: do, ad: ad, cd: cd,
-			nexcept: c.nexcept, pexcept: c.pexcept, wildcardFunc: wildcardFunc(ctx)}
-		return c.doRefresh(ctx, state, crr)
-	}
-	ttl = i.ttl(now)
-	if ttl < 0 {
-		// serve stale behavior
-		if c.verifyStale {
-			crr := &ResponseWriter{ResponseWriter: w, Cache: c, state: state, server: server, do: do, cd: cd}
-			cw := newVerifyStaleResponseWriter(crr)
-			ret, err := c.doRefresh(ctx, state, cw)
-			if cw.refreshed {
-				return ret, err
+	var i *item
+	key := hash(state.Name(), state.QType(), state.Do(), state.Req.CheckingDisabled)
+	if c.NeedEarlyRefresh(state) {
+		i = c.getEarly(now, state, server)
+		if i == nil {
+			crr := &ResponseWriter{
+				ResponseWriter: w, Cache: c, state: state, server: server, do: do, ad: ad, cd: cd,
+				nexcept: c.nexcept, pexcept: c.pexcept, wildcardFunc: wildcardFunc(ctx),
 			}
-		}
-
-		// Adjust the time to get a 0 TTL in the reply built from a stale item.
-		now = now.Add(time.Duration(ttl) * time.Second)
-		if !c.verifyStale {
+			return c.doRefresh(ctx, state, crr)
+		} else if c.shouldPrefetch(i, now) {
 			cw := newPrefetchResponseWriter(server, state, c)
 			go c.doPrefetch(ctx, state, cw, i, now)
 		}
-		servedStale.WithLabelValues(server, c.zonesMetricLabel, c.viewMetricLabel).Inc()
-	} else if c.shouldPrefetch(i, now) {
-		cw := newPrefetchResponseWriter(server, state, c)
-		go c.doPrefetch(ctx, state, cw, i, now)
+	} else {
+		i = c.getLate(now, state, server)
+		if i == nil {
+			i = c.getEarly(now, state, server)
+			if i == nil {
+				crr := &ResponseWriter{
+					ResponseWriter: w, Cache: c, state: state, server: server, do: do, ad: ad, cd: cd,
+					nexcept: c.nexcept, pexcept: c.pexcept, wildcardFunc: wildcardFunc(ctx),
+				}
+				return c.doRefresh(ctx, state, crr)
+			} else {
+				c.copyToLate(key, i, now)
+				if c.shouldPrefetch(i, now) {
+					cw := newPrefetchResponseWriter(server, state, c)
+					go c.doPrefetch(ctx, state, cw, i, now)
+				}
+			}
+		} else {
+			ttl := i.ttl(now)
+			if ttl < 0 {
+				// serve stale behavior
+				if c.verifyStale {
+					crr := &ResponseWriter{ResponseWriter: w, Cache: c, state: state, server: server, do: do, cd: cd}
+					cw := newVerifyStaleResponseWriter(crr)
+					ret, err := c.doRefresh(ctx, state, cw)
+					if cw.refreshed {
+						return ret, err
+					}
+				}
+
+				// Adjust the time to get a 0 TTL in the reply built from a stale item.
+				now = now.Add(time.Duration(ttl) * time.Second)
+				if !c.verifyStale {
+					cw := newPrefetchResponseWriter(server, state, c)
+					go c.doPrefetch(ctx, state, cw, i, now)
+				}
+				servedStale.WithLabelValues(server, c.zonesMetricLabel, c.viewMetricLabel).Inc()
+			} else if c.shouldPrefetch(i, now.Add(-c.extrattl)) {
+				cw := newPrefetchResponseWriter(server, state, c)
+				go c.doPrefetch(ctx, state, cw, i, now)
+			}
+		}
 	}
 
 	if i.wildcard != "" {

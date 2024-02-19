@@ -17,7 +17,7 @@ import (
 
 // Cache is a plugin that looks up responses in a cache and caches replies.
 // It has a success and a denial of existence cache.
-type Cache struct {
+type CacheBackend struct {
 	Next  plugin.Handler
 	Zones []string
 
@@ -57,8 +57,8 @@ type Cache struct {
 
 // New returns an initialized Cache with default settings. It's up to the
 // caller to set the Next handler.
-func New() *Cache {
-	return &Cache{
+func NewBackend() *CacheBackend {
+	return &CacheBackend{
 		Zones:      []string{"."},
 		pcap:       defaultCap,
 		pcache:     cache.New(defaultCap),
@@ -213,7 +213,12 @@ func (w *ResponseWriter) WriteMsg(res *dns.Msg) error {
 	}
 
 	// Apply capped TTL to this reply to avoid jarring TTL experience 1799 -> 8 (e.g.)
-	ttl := uint32(duration.Seconds())
+	var ttl uint32
+	if !w.NeedEarlyRefresh(w.state) && (mt == response.NoError || mt == response.Delegation) {
+		ttl = uint32(duration.Seconds()) + uint32(w.extrattl.Seconds())
+	} else {
+		ttl = uint32(duration.Seconds())
+	}
 	res.Answer = filterRRSlice(res.Answer, ttl, false)
 	res.Ns = filterRRSlice(res.Ns, ttl, false)
 	res.Extra = filterRRSlice(res.Extra, ttl, false)
@@ -243,6 +248,7 @@ func (w *ResponseWriter) set(m *dns.Msg, key uint64, mt response.Type, duration 
 		if w.pcache.Add(key, i) {
 			evictions.WithLabelValues(w.server, Success, w.zonesMetricLabel, w.viewMetricLabel).Inc()
 		}
+		w.copyToLate(key, i, w.now())
 		// when pre-fetching, remove the negative cache entry if it exists
 		if w.prefetch {
 			w.ncache.Remove(key)

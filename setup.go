@@ -14,18 +14,27 @@ import (
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 )
 
-var log = clog.NewWithPlugin("cache")
+var log = clog.NewWithPlugin("k8s_cache")
 
-func init() { plugin.Register("cache", setup) }
+func init() { plugin.Register("k8s_cache", setup) }
 
 func setup(c *caddy.Controller) error {
 	ca, err := cacheParse(c)
 	if err != nil {
-		return plugin.Error("cache", err)
+		return plugin.Error("k8s_cache", err)
 	}
 
 	c.OnStartup(func() error {
 		ca.viewMetricLabel = dnsserver.GetConfig(c).ViewName
+		ca.k8sAPI, err = newK8sAPI()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	c.OnShutdown(func() error {
+		close(ca.k8sAPI.reflectorChan)
 		return nil
 	})
 
@@ -246,6 +255,16 @@ func cacheParse(c *caddy.Controller) (*Cache, error) {
 					return nil, c.ArgErr()
 				}
 				ca.keepttl = true
+			case "earlyrefresh":
+				args := c.RemainingArgs()
+				if len(args) != 1 {
+					return nil, c.ArgErr()
+				}
+				d, err := time.ParseDuration(args[0])
+				if err != nil {
+					return nil, err
+				}
+				ca.extrattl = d
 			default:
 				return nil, c.ArgErr()
 			}
@@ -255,6 +274,7 @@ func cacheParse(c *caddy.Controller) (*Cache, error) {
 		ca.zonesMetricLabel = strings.Join(origins, ",")
 		ca.pcache = cache.New(ca.pcap)
 		ca.ncache = cache.New(ca.ncap)
+		ca.latepcache = cache.New(ca.pcap)
 	}
 
 	return ca, nil

@@ -14,6 +14,11 @@ import (
 	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
+
+	"k8s.io/client-go/kubernetes/fake"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kcache "k8s.io/client-go/tools/cache"
+	"k8s.io/api/core/v1"
 )
 
 func cacheMsg(m *dns.Msg, tc test.Case) *dns.Msg {
@@ -29,8 +34,31 @@ func cacheMsg(m *dns.Msg, tc test.Case) *dns.Msg {
 	return m
 }
 
-func newTestCache(ttl time.Duration) (*Cache, *ResponseWriter) {
+func newTestK8sCache() *Cache {
 	c := New()
+
+	k := new(k8sAPI)
+	clientset := fake.NewSimpleClientset()
+
+	optionsModifier := func(options *metav1.ListOptions) {
+	options.LabelSelector = "k8s-cache.coredns.io/early-refresh=true"
+	}
+	lw := kcache.NewFilteredListWatchFromClient(
+		clientset.CoreV1().RESTClient(),
+		"pods",
+		metav1.NamespaceAll,
+		optionsModifier,
+	)
+
+	k.store, k.reflector = kcache.NewNamespaceKeyedIndexerAndReflector(lw, &v1.Pod{}, time.Second*10)
+	k.reflectorChan = make(chan struct{})
+
+	c.k8sAPI, _ = newK8sAPI()
+	return c
+}
+
+func newTestCache(ttl time.Duration) (*Cache, *ResponseWriter) {
+	c := newTestK8sCache()
 	c.pttl = ttl
 	c.nttl = ttl
 
@@ -344,7 +372,7 @@ func TestCacheInsertion(t *testing.T) {
 }
 
 func TestCacheZeroTTL(t *testing.T) {
-	c := New()
+	c := newTestK8sCache()
 	c.minpttl = 0
 	c.minnttl = 0
 	c.Next = ttlBackend(0)
@@ -363,7 +391,7 @@ func TestCacheZeroTTL(t *testing.T) {
 }
 
 func TestCacheServfailTTL0(t *testing.T) {
-	c := New()
+	c := newTestK8sCache()
 	c.minpttl = minTTL
 	c.minnttl = minNTTL
 	c.failttl = 0
@@ -380,7 +408,7 @@ func TestCacheServfailTTL0(t *testing.T) {
 }
 
 func TestServeFromStaleCache(t *testing.T) {
-	c := New()
+	c := newTestK8sCache()
 	c.Next = ttlBackend(60)
 
 	req := new(dns.Msg)
@@ -426,7 +454,7 @@ func TestServeFromStaleCache(t *testing.T) {
 }
 
 func TestServeFromStaleCacheFetchVerify(t *testing.T) {
-	c := New()
+	c := newTestK8sCache()
 	c.Next = ttlBackend(120)
 
 	req := new(dns.Msg)
@@ -500,7 +528,7 @@ func TestServeFromStaleCacheFetchVerify(t *testing.T) {
 }
 
 func TestNegativeStaleMaskingPositiveCache(t *testing.T) {
-	c := New()
+	c := newTestK8sCache()
 	c.staleUpTo = time.Minute * 10
 	c.Next = nxDomainBackend(60)
 
@@ -543,6 +571,7 @@ func TestNegativeStaleMaskingPositiveCache(t *testing.T) {
 
 	// Set Backend to return a positive NOERROR + A record response
 	c.Next = BackendHandler()
+	c.prefetch = 1
 
 	// Make a query for the stale cache item
 	rec = dnstest.NewRecorder(&test.ResponseWriter{})
@@ -586,7 +615,7 @@ func TestNegativeStaleMaskingPositiveCache(t *testing.T) {
 }
 
 func BenchmarkCacheResponse(b *testing.B) {
-	c := New()
+	c := newTestK8sCache()
 	c.prefetch = 1
 	c.Next = BackendHandler()
 
@@ -684,7 +713,7 @@ func TestComputeTTL(t *testing.T) {
 }
 
 func TestCacheWildcardMetadata(t *testing.T) {
-	c := New()
+	c := newTestK8sCache()
 	qname := "foo.bar.example.org."
 	wildcard := "*.bar.example.org."
 	c.Next = wildcardMetadataBackend(qname, wildcard)
@@ -726,7 +755,7 @@ func TestCacheWildcardMetadata(t *testing.T) {
 func TestCacheKeepTTL(t *testing.T) {
 	defaultTtl := 60
 
-	c := New()
+	c := newTestK8sCache()
 	c.Next = ttlBackend(defaultTtl)
 
 	req := new(dns.Msg)
@@ -849,7 +878,7 @@ func TestCacheSeparation(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := New()
+			c := newTestK8sCache()
 			crr := &ResponseWriter{ResponseWriter: nil, Cache: c}
 
 			// Insert initial cache entry
