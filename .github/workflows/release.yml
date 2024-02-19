@@ -22,14 +22,16 @@ jobs:
           ref: v${{ env.COREDNS_VERSION }}
       - name: Build release binary
         run: |
+          set -x -e
           sed -i 's/^cache:cache/k8s_cache:github.com\/delta10\/k8s_cache/' plugin.cfg
           go generate
           go get github.com/delta10/k8s_cache
-          make -f Makefile.release release -e VERSION=$VERSION
+          make -f Makefile.release release -e LINUX_ARCH="amd64 arm64" VERSION=$VERSION
       - name: Build release binary sha256
         run: (cd release; for asset in `ls -A *tgz`; do sha256sum $asset > $asset.sha256; done)
-      - name: Remove hidden section
-        run: sed '/+++/,//d' notes/coredns-${{ env.COREDNS_VERSION }}.md > release.md
+      - name: Create release.md
+        run: |
+          echo "This is [CoreDNS $COREDNS_VERSION](https://github.com/coredns/coredns/releases/tag/v$COREDNS_VERSION) compiled with k8s_cache $VERSION." > release.md
       - name: Log release info
         run: |
           set -x -e
