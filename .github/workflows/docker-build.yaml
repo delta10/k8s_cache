@@ -42,7 +42,7 @@ jobs:
       - name: Publish Docker Images
         run: |
           set -x -e
-          for arch in "amd64 arm64"; do \
+          for arch in amd64 arm64; do \
             docker tag delta10/coredns:$arch-${RELEASE:1} ghcr.io/delta10/coredns:$arch-${RELEASE:1}
             docker push ghcr.io/delta10/coredns:$arch-${RELEASE:1}
           done
