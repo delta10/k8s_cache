@@ -265,6 +265,25 @@ func cacheParse(c *caddy.Controller) (*Cache, error) {
 					return nil, err
 				}
 				ca.extrattl = d
+			case "api-endpoint":
+				args := c.RemainingArgs()
+				if len(args) > 0 {
+					// Multiple endpoints are deprecated but still could be specified,
+					// only the first one be used, though
+					ca.k8sAPI.APIServerList = args
+					if len(args) > 1 {
+						log.Warningf("Multiple endpoints have been deprecated, only the first specified endpoint '%s' is used", args[0])
+					}
+					continue
+				}
+				return nil, c.ArgErr()
+			case "api-tls": // cert key cacertfile
+				args := c.RemainingArgs()
+				if len(args) == 3 {
+					ca.k8sAPI.APIClientCert, ca.k8sAPI.APIClientKey, ca.k8sAPI.APICertAuth = args[0], args[1], args[2]
+					continue
+				}
+				return nil, c.ArgErr()
 			default:
 				return nil, c.ArgErr()
 			}

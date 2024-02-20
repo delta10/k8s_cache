@@ -52,8 +52,10 @@ func newK8sAPI() (*k8sAPI, error) {
 }
 
 func (k *k8sAPI) getKubernetesClient() (*kubernetes.Clientset, error) {
-	// config, err := k.getClientConfig()
-	config, err := clientcmd.BuildConfigFromFlags("", "/home/lennart10/.kube/config")
+	config, err := k.getClientConfig()
+	if err != nil {
+		return nil, err
+	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
