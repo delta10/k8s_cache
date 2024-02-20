@@ -24,6 +24,7 @@ func New() *Cache {
 	return &Cache{
 		CacheBackend: cb,
 		latepcache: cache.New(defaultCap),
+		k8sAPI: &k8sAPI{},
 	}
 }
 
