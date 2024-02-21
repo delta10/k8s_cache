@@ -11,7 +11,8 @@ adds an option to send a refreshed positive cache item first to pods with the la
 `k8s-cache.coredns.io/early-refresh=true`. Other pods get it only after a specified
 duration. This makes it possible to implement stable NetworkPolicy whitelists on the basis
 of domain names, using tools such as
-[dns-resolution-operator](https://github.com/delta10/dns-resolution-operator).
+[dns-resolution-operator](https://github.com/delta10/dns-resolution-operator) and (perhaps)
+[FQDNNetworkPolicies](https://github.com/nais/fqdn-policy).
 
 The implementation uses an additional cache store called the "late cache", which is
 shifted a number of seconds. On expiration, items in the late cached are replaced with
