@@ -37,7 +37,7 @@ jobs:
       - name: Build Docker Images
         run: |
           sed -i 's/github.com\/coredns\/coredns\/releases\/download/github.com\/delta10\/k8s_cache\/releases\/download/' Makefile.docker
-          make VERSION=${RELEASE:1} DOCKER=delta10 LINUX_ARCH=$LINUX_ARCH -f Makefile.docker release
+          make VERSION=${RELEASE:1} DOCKER=delta10 "LINUX_ARCH=$LINUX_ARCH" -f Makefile.docker release
       - name: Show Docker Images
         run: docker images
       - name: Publish Docker Images
