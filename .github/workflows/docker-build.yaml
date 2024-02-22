@@ -21,6 +21,7 @@ jobs:
       RELEASE: ${{ github.event.inputs.release || github.event.release.tag_name }}
       IMAGE_PREFIX: ${{ github.repository }}
       COREDNS_VERSION: 1.11.1
+      LINUX_ARCH: amd64 arm64
     steps:
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -36,13 +37,19 @@ jobs:
       - name: Build Docker Images
         run: |
           sed -i 's/github.com\/coredns\/coredns\/releases\/download/github.com\/delta10\/k8s_cache\/releases\/download/' Makefile.docker
-          make VERSION=${RELEASE:1} DOCKER=delta10 LINUX_ARCH="amd64 arm64" -f Makefile.docker release
+          make VERSION=${RELEASE:1} DOCKER=delta10 LINUX_ARCH=$LINUX_ARCH -f Makefile.docker release
       - name: Show Docker Images
         run: docker images
       - name: Publish Docker Images
         run: |
           set -x -e
-          for arch in amd64 arm64; do \
+          for arch in amd64 arm64; do
+            IMAGE_LIST+=" ghcr.io/delta10/coredns:$arch-${RELEASE:1}"
             docker tag delta10/coredns:$arch-${RELEASE:1} ghcr.io/delta10/coredns:$arch-${RELEASE:1}
             docker push ghcr.io/delta10/coredns:$arch-${RELEASE:1}
           done
+          docker manifest create --amend delta10/coredns:${RELEASE:1} $IMAGE_LIST
+          docker manifest create --amend delta10/coredns:latest $IMAGE_LIST
+          docker manifest push --purge delta10/coredns:${RELEASE:1}
+          docker manifest push --purge delta10/coredns:latest
+
