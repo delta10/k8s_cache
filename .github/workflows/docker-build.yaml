@@ -48,8 +48,8 @@ jobs:
             docker tag delta10/coredns:$arch-${RELEASE:1} ghcr.io/delta10/coredns:$arch-${RELEASE:1}
             docker push ghcr.io/delta10/coredns:$arch-${RELEASE:1}
           done
-          docker manifest create --amend delta10/coredns:${RELEASE:1} $IMAGE_LIST
-          docker manifest create --amend delta10/coredns:latest $IMAGE_LIST
-          docker manifest push --purge delta10/coredns:${RELEASE:1}
-          docker manifest push --purge delta10/coredns:latest
+          docker manifest create --amend ghcr.io/delta10/coredns:${RELEASE:1} $IMAGE_LIST
+          docker manifest create --amend ghcr.io/delta10/coredns:latest $IMAGE_LIST
+          docker manifest push --purge ghcr.io/delta10/coredns:${RELEASE:1}
+          docker manifest push --purge ghcr.io/delta10/coredns:latest
 
