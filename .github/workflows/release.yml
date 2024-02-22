@@ -23,7 +23,7 @@ jobs:
       - name: Build release binary
         run: |
           set -x -e
-          sed -i 's/^cache:cache/k8s_cache:github.com\/delta10\/k8s_cache@main/' plugin.cfg
+          sed -i 's/^cache:cache/k8s_cache:github.com\/delta10\/k8s_cache/' plugin.cfg
           go generate
           go get github.com/delta10/k8s_cache
           make -f Makefile.release release -e LINUX_ARCH="amd64 arm64" VERSION=$VERSION
