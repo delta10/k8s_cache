@@ -65,7 +65,7 @@ seconds earlier to pods with the early refresh label.
 .:5300 {
   k8s_cache {
     success 10000
-    denail 10000
+    denial 10000
     earlyrefresh 5s
   }
   forward . 8.8.8.8
