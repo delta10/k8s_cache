@@ -25,7 +25,7 @@ jobs:
           set -x -e
           sed -i 's/^cache:cache/k8s_cache:github.com\/delta10\/k8s_cache/' plugin.cfg
           go generate
-          go get github.com/delta10/k8s_cache
+          go get github.com/delta10/k8s_cache@main
           make -f Makefile.release release -e LINUX_ARCH="amd64 arm64" VERSION=$VERSION
       - name: Build release binary sha256
         run: (cd release; for asset in `ls -A *tgz`; do sha256sum $asset > $asset.sha256; done)
