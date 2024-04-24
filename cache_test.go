@@ -51,9 +51,10 @@ func newTestK8sCache() *Cache {
 	)
 
 	k.store, k.reflector = kcache.NewNamespaceKeyedIndexerAndReflector(lw, &v1.Pod{}, time.Second*10)
-	k.reflectorChan = make(chan struct{})
+	// k.reflectorChan = make(chan struct{})
+	// go k.reflector.Run(k.reflectorChan)
 
-	c.k8sAPI, _ = newK8sAPI()
+	c.k8sAPI = k
 	return c
 }
 
