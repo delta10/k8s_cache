@@ -13,7 +13,7 @@ import (
 
 func TestSpoof(t *testing.T) {
 	// Send query for example.org, get reply for example.net; should not be cached.
-	c := newTestK8sCache()
+	c := newTestK8sCache(false)
 	c.Next = spoofHandler(true)
 
 	req := new(dns.Msg)
@@ -41,7 +41,7 @@ func TestSpoof(t *testing.T) {
 
 func TestResponse(t *testing.T) {
 	// Send query for example.org, get reply for example.net; should not be cached.
-	c := newTestK8sCache()
+	c := newTestK8sCache(false)
 	c.Next = spoofHandler(false)
 
 	req := new(dns.Msg)

@@ -12,7 +12,7 @@ import (
 )
 
 func TestFormErr(t *testing.T) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(false)
 	c.Next = formErrHandler()
 
 	req := new(dns.Msg)

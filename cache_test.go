@@ -34,14 +34,15 @@ func cacheMsg(m *dns.Msg, tc test.Case) *dns.Msg {
 	return m
 }
 
-func newTestK8sCache() *Cache {
+func newTestK8sCache(earlyRefresh bool) *Cache {
 	c := New()
-
 	k := new(k8sAPI)
-	clientset := fake.NewSimpleClientset()
+	var clientset *fake.Clientset
+
+	clientset = fake.NewSimpleClientset()
 
 	optionsModifier := func(options *metav1.ListOptions) {
-	options.LabelSelector = "k8s-cache.coredns.io/early-refresh=true"
+		options.LabelSelector = "k8s-cache.coredns.io/early-refresh=true"
 	}
 	lw := kcache.NewFilteredListWatchFromClient(
 		clientset.CoreV1().RESTClient(),
@@ -51,15 +52,32 @@ func newTestK8sCache() *Cache {
 	)
 
 	k.store, k.reflector = kcache.NewNamespaceKeyedIndexerAndReflector(lw, &v1.Pod{}, time.Second*10)
-	// k.reflectorChan = make(chan struct{})
-	// go k.reflector.Run(k.reflectorChan)
+
+	if earlyRefresh {
+		c.extrattl = time.Duration(5)*time.Second
+		selfPod := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test",
+				Namespace: "default",
+				Labels: map[string]string{
+					"k8s-cache.coredns.io/early-refresh": "true",
+				},
+			},
+			Status: v1.PodStatus{
+				PodIPs: []v1.PodIP{
+					{IP: "10.240.0.1"},
+				},
+			},
+		}
+		k.store.Add(selfPod)
+	}
 
 	c.k8sAPI = k
 	return c
 }
 
 func newTestCache(ttl time.Duration) (*Cache, *ResponseWriter) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(true)
 	c.pttl = ttl
 	c.nttl = ttl
 
@@ -313,7 +331,7 @@ func TestCacheInsertion(t *testing.T) {
 			m := tc.in.Msg()
 			m = cacheMsg(m, tc.in)
 
-			state := request.Request{W: &test.ResponseWriter{}, Req: m}
+			state := request.Request{W: &test.ResponseWriter{RemoteIP: "127.0.0.1"}, Req: m}
 
 			mt, _ := response.Typify(m, utc)
 			valid, k := key(state.Name(), m, mt, state.Do(), state.Req.CheckingDisabled)
@@ -324,7 +342,7 @@ func TestCacheInsertion(t *testing.T) {
 			}
 
 			// Attempt to retrieve cache entry
-			i := c.getIgnoreTTL(time.Now().UTC(), state, "dns://:53")
+			i := c.getEarly(time.Now().UTC(), state, "dns://:53")
 			found := i != nil
 
 			if !tc.shouldCache && found {
@@ -367,13 +385,31 @@ func TestCacheInsertion(t *testing.T) {
 				if err := test.Section(tc.out, test.Extra, resp.Extra); err != nil {
 					t.Error(err)
 				}
+
+				if m.Rcode == dns.RcodeSuccess {
+					// Check late and early cache TTL values
+					if i.origTTL != 3600 {
+						t.Errorf("Expected early cache TTL of 3600, got %v", i.origTTL)
+					}
+
+					i := c.getLate(time.Now().UTC(), state, "dns://:53")
+					found := i != nil
+					if ! found {
+						t.Errorf("Did not cache message that should have been cached: %s", state.Name())
+					} else {
+						ettl := 3600 + uint32(c.extrattl.Seconds())
+						if i.origTTL != ettl {
+							t.Errorf("Expected late cache TTL of %v, got %v", ettl, i.origTTL)
+						}
+					}
+				}
 			}
 		})
 	}
 }
 
 func TestCacheZeroTTL(t *testing.T) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(true)
 	c.minpttl = 0
 	c.minnttl = 0
 	c.Next = ttlBackend(0)
@@ -392,7 +428,7 @@ func TestCacheZeroTTL(t *testing.T) {
 }
 
 func TestCacheServfailTTL0(t *testing.T) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(true)
 	c.minpttl = minTTL
 	c.minnttl = minNTTL
 	c.failttl = 0
@@ -409,7 +445,7 @@ func TestCacheServfailTTL0(t *testing.T) {
 }
 
 func TestServeFromStaleCache(t *testing.T) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(false)
 	c.Next = ttlBackend(60)
 
 	req := new(dns.Msg)
@@ -455,7 +491,7 @@ func TestServeFromStaleCache(t *testing.T) {
 }
 
 func TestServeFromStaleCacheFetchVerify(t *testing.T) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(false)
 	c.Next = ttlBackend(120)
 
 	req := new(dns.Msg)
@@ -529,7 +565,7 @@ func TestServeFromStaleCacheFetchVerify(t *testing.T) {
 }
 
 func TestNegativeStaleMaskingPositiveCache(t *testing.T) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(true)
 	c.staleUpTo = time.Minute * 10
 	c.Next = nxDomainBackend(60)
 
@@ -616,7 +652,7 @@ func TestNegativeStaleMaskingPositiveCache(t *testing.T) {
 }
 
 func BenchmarkCacheResponse(b *testing.B) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(true)
 	c.prefetch = 1
 	c.Next = BackendHandler()
 
@@ -714,7 +750,7 @@ func TestComputeTTL(t *testing.T) {
 }
 
 func TestCacheWildcardMetadata(t *testing.T) {
-	c := newTestK8sCache()
+	c := newTestK8sCache(true)
 	qname := "foo.bar.example.org."
 	wildcard := "*.bar.example.org."
 	c.Next = wildcardMetadataBackend(qname, wildcard)
@@ -756,7 +792,7 @@ func TestCacheWildcardMetadata(t *testing.T) {
 func TestCacheKeepTTL(t *testing.T) {
 	defaultTtl := 60
 
-	c := newTestK8sCache()
+	c := newTestK8sCache(false)
 	c.Next = ttlBackend(defaultTtl)
 
 	req := new(dns.Msg)
@@ -879,7 +915,7 @@ func TestCacheSeparation(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := newTestK8sCache()
+			c := newTestK8sCache(false)
 			crr := &ResponseWriter{ResponseWriter: nil, Cache: c}
 
 			// Insert initial cache entry
@@ -900,7 +936,10 @@ func TestCacheSeparation(t *testing.T) {
 			m = cacheMsg(m, tc.query)
 			state = request.Request{W: &test.ResponseWriter{}, Req: m}
 
-			item := c.getIgnoreTTL(time.Now().UTC(), state, "dns://:53")
+			item := c.getLate(time.Now().UTC(), state, "dns://:53")
+			if item == nil {
+				item = c.getEarly(time.Now().UTC(), state, "dns://:53")
+			}
 			found := item != nil
 
 			if !tc.expectCached && found {
@@ -928,4 +967,106 @@ func wildcardMetadataBackend(qname, wildcard string) plugin.Handler {
 
 		return dns.RcodeSuccess, nil
 	})
+}
+
+func TestEarlyRefreshCache(t *testing.T) {
+	c := newTestK8sCache(true)
+	ips := c.k8sAPI.getEarlyRefreshIPs()
+	if len(ips) == 0 {
+		t.Fatalf("No early refresh pods in k8sAPI.store")
+	} 
+	c.Next = ttlBackend(60)
+
+	req := new(dns.Msg)
+	req.SetQuestion("cached.org.", dns.TypeA)
+	ctx := context.TODO()
+
+	for _, serveStale := range []bool{true, false} {
+		if serveStale {
+			// should not affect results
+			c.staleUpTo = 1 * time.Minute
+		} else {
+			c.staleUpTo = 0
+		}
+		// Cache cached.org. with 60s TTL
+		rec := dnstest.NewRecorder(&test.ResponseWriter{})
+		c.ServeDNS(ctx, rec, req)
+		if c.pcache.Len() != 1 {
+			t.Fatalf("Msg with > 0 TTL should have been cached")
+		}
+
+		// No more backend resolutions, just from cache if available.
+		c.Next = plugin.HandlerFunc(func(context.Context, dns.ResponseWriter, *dns.Msg) (int, error) {
+			return 255, nil // Below, a 255 means we tried querying upstream.
+		})
+
+		tests := []struct {
+			name           string
+			futureSeconds  int
+			expectedResult int
+		}{
+			{"cached.org.", 59, 0},
+			{"cached.org.", 61, 255},
+			{"cached.org.", 66, 255},
+
+			{"notcached.org.", 30, 255},
+			{"notcached.org.", 63, 255},
+			{"notcached.org.", 70, 255},
+		}
+
+		for i, tt := range tests {
+			rec := dnstest.NewRecorder(&test.ResponseWriter{})
+			c.now = func() time.Time { return time.Now().Add(time.Duration(tt.futureSeconds) * time.Second) }
+			r := req.Copy()
+			r.SetQuestion(tt.name, dns.TypeA)
+			if ret, _ := c.ServeDNS(ctx, rec, r); ret != tt.expectedResult {
+				t.Errorf("Test %d (serveStale %v): expecting %v; got %v", i, serveStale, tt.expectedResult, ret)
+			}
+		}
+	}
+}
+
+func TestNoEarlyRefreshCache(t *testing.T) {
+	c := newTestK8sCache(true)
+	// delete early refresh pods
+	for _, obj := range c.k8sAPI.store.List() {
+		c.k8sAPI.store.Delete(obj)
+	}
+	c.Next = ttlBackend(60)
+
+	req := new(dns.Msg)
+	req.SetQuestion("cached.org.", dns.TypeA)
+	ctx := context.TODO()
+
+	// Cache cached.org. with 60s TTL
+	rec := dnstest.NewRecorder(&test.ResponseWriter{})
+	c.ServeDNS(ctx, rec, req)
+	if c.pcache.Len() != 1 {
+		t.Fatalf("Msg with > 0 TTL should have been cached")
+	}
+
+	// No more backend resolutions, just from cache if available.
+	c.Next = plugin.HandlerFunc(func(context.Context, dns.ResponseWriter, *dns.Msg) (int, error) {
+		return 255, nil // Below, a 255 means we tried querying upstream.
+	})
+
+	tests := []struct {
+		name           string
+		futureSeconds  int
+		expectedResult int
+	}{
+		{"cached.org.", 30, 0},
+		{"cached.org.", 64, 0},
+		{"cached.org.", 66, 255},
+	}
+
+	for i, tt := range tests {
+		rec := dnstest.NewRecorder(&test.ResponseWriter{})
+		c.now = func() time.Time { return time.Now().Add(time.Duration(tt.futureSeconds) * time.Second) }
+		r := req.Copy()
+		r.SetQuestion(tt.name, dns.TypeA)
+		if ret, _ := c.ServeDNS(ctx, rec, r); ret != tt.expectedResult {
+			t.Errorf("Test %d: expecting %v; got %v", i, tt.expectedResult, ret)
+		}
+	}
 }

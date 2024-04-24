@@ -163,7 +163,7 @@ func TestPrefetch(t *testing.T) {
 		t.Run(tt.qname, func(t *testing.T) {
 			fetchc := make(chan struct{}, 1)
 
-			c := newTestK8sCache()
+			c := newTestK8sCache(false)
 			c.Next = prefetchHandler(tt.qname, tt.ttl, fetchc)
 			c.prefetch = tt.prefetch
 

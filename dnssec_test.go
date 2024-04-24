@@ -35,7 +35,7 @@ func TestResponseWithDNSSEC(t *testing.T) {
 		},
 	}
 
-	c := newTestK8sCache()
+	c := newTestK8sCache(false)
 	c.Next = dnssecHandler()
 
 	for i, tc := range tcs {
@@ -51,7 +51,7 @@ func TestResponseWithDNSSEC(t *testing.T) {
 	}
 
 	// now do the reverse
-	c = newTestK8sCache()
+	c = newTestK8sCache(false)
 	c.Next = dnssecHandler()
 
 	for i, tc := range []test.Case{tcs[1], tcs[0]} {
