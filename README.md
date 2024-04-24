@@ -10,12 +10,10 @@ This is a fork of [cache](https://github.com/coredns/coredns/tree/master/plugin/
 adds an option to send a refreshed positive cache item first to pods with the label
 `k8s-cache.coredns.io/early-refresh=true`. Other pods get it only after a specified
 duration. This makes it possible to implement stable NetworkPolicy whitelists on the basis
-of domain names, using tools such as
-[dns-resolution-operator](https://github.com/delta10/dns-resolution-operator) and (perhaps)
-[FQDNNetworkPolicies](https://github.com/nais/fqdn-policy).
+of domain names that are resolved with DNS, using [Stable FQDNNetworkPolicies](https://github.com/delta10/fqdnnetworkpolicies).
 
 The implementation uses an additional cache store called the "late cache", which is
-shifted a number of seconds. On expiration, items in the late cached are replaced with
+shifted a number of seconds. On expiration, items in the late cache are replaced with
 items from the early cache if they exist. When a request comes in, the plugin normally
 checks first if the response is cached in the late cache, then in the early cache. If the
 source IP matches a pod with the label `k8s-cache.coredns.io/early-refresh=true`, the late
