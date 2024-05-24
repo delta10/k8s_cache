@@ -7,7 +7,7 @@ on:
         description: "Version used to create tag"
 
 env:
-  COREDNS_VERSION: 1.11.2
+  COREDNS_VERSION: 1.11.3
   VERSION: ${{ github.event.inputs.version }}
 
 jobs:
