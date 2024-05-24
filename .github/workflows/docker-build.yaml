@@ -20,7 +20,7 @@ jobs:
     env:
       RELEASE: ${{ github.event.inputs.release || github.event.release.tag_name }}
       IMAGE_PREFIX: ${{ github.repository }}
-      COREDNS_VERSION: 1.11.1
+      COREDNS_VERSION: 1.11.3
       LINUX_ARCH: amd64 arm64
     steps:
       - name: Login to GitHub Container Registry
